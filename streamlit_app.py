@@ -13,12 +13,17 @@ import csv
 import io
 import json
 import os
+import threading
+import time
 
 import httpx
 import pandas as pd
 import streamlit as st
+import uvicorn
 
 BACKEND_URL = os.getenv("REVIEWGUARD_BACKEND_URL", "http://127.0.0.1:8000")
+EMBEDDED_BACKEND_PORT = 8000
+SECRET_NAMES = ["GOOGLE_API_KEY", "GEMINI_API_KEY", "GEMINI_MODEL"]
 MAX_REVIEWS = 100
 
 
@@ -57,6 +62,43 @@ def call_backend(method: str, path: str, timeout: float = 300.0, **options):
     if response.status_code == 200:
         return response.json(), None
     return None, error_text(response)
+
+
+@st.cache_resource
+def start_embedded_backend() -> bool:
+    """On Streamlit Cloud, run FastAPI inside this app. Returns True if started.
+
+    On your own computer you start the backend yourself and keys come from .env.
+    Streamlit Cloud has no .env file and runs only this script, so there we copy
+    the keys from its Secrets into the environment, where main.py looks for them,
+    and run the backend on a background thread.
+
+    Binding to 127.0.0.1 means only this app can reach it, not the internet.
+    st.cache_resource makes this run once, not on every click.
+    """
+    try:
+        secrets = {name: str(st.secrets[name]) for name in SECRET_NAMES if name in st.secrets}
+    except FileNotFoundError:
+        secrets = {}  # no Secrets configured, which is normal on your own computer
+    if not secrets:
+        return False
+
+    os.environ.update(secrets)
+
+    import main  # imported here because it needs the environment set up first
+
+    config = uvicorn.Config(
+        main.app, host="127.0.0.1", port=EMBEDDED_BACKEND_PORT, log_level="warning"
+    )
+    server = uvicorn.Server(config)
+    threading.Thread(target=server.run, daemon=True).start()
+
+    # Give the server a moment to open its port before the page calls it.
+    for _attempt in range(50):
+        if server.started:
+            return True
+        time.sleep(0.1)
+    return False
 
 
 # -----------------------------------------------------------------------------
@@ -211,6 +253,8 @@ st.info(
 )
 
 health, health_error = call_backend("GET", "/health", timeout=5.0)
+if health_error and start_embedded_backend():
+    health, health_error = call_backend("GET", "/health", timeout=5.0)
 if health_error:
     st.error(health_error, title="Backend not running")
     st.stop()
