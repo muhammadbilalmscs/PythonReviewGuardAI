@@ -2,6 +2,8 @@
 
 Google Business Review Intelligence: a small learning project using Python, FastAPI, Streamlit, Pydantic, Google Places and Gemini tool calling.
 
+**Live demo:** <https://pythonreviewguardai-65mwnagmbipgbnahopgwnm.streamlit.app/>
+
 ## 1. What the application does
 
 A business owner can look up a business, enter or upload reviews, and get:
@@ -93,7 +95,9 @@ This score measures the evidence the app holds. **It is not the probability of r
 
 ## 9. How Streamlit communicates with FastAPI
 
-`call_backend` in `streamlit_app.py` sends an HTTP request and reads the JSON reply. Streamlit reruns the whole script after every click, so results are kept in `st.session_state`. The page never sees your API keys.
+`call_backend` in `streamlit_app.py` sends an HTTP request and reads the JSON reply. Streamlit reruns the whole script after every click, so results are kept in `st.session_state`. Keys are read only on the server and are never sent to the viewer's browser.
+
+On your own computer, FastAPI runs as a separate program. On Streamlit Cloud, `start_embedded_backend` runs it on a background thread inside the app. The page uses the same HTTP calls in both cases.
 
 ## 10. Configure API credentials
 
@@ -158,3 +162,23 @@ CSV and JSON uploads need `text` and `rating` columns. `review_id` and `owner_ev
 - The app has no database and writes no reviews to disk.
 - The owner's evidence is recorded but cannot be verified by the app. Check every sentence of a report before using it.
 - Official guidance: [review policy](https://support.google.com/contributionpolicy/answer/7400114) and [how to report a review](https://support.google.com/business/answer/4596773).
+
+## 13. Deploy on Streamlit Community Cloud
+
+The app runs for free on [Streamlit Community Cloud](https://docs.streamlit.io/deploy/streamlit-community-cloud), with no separate backend host.
+
+1. Push this repository to GitHub.
+2. In Streamlit Cloud, create an app from the repository and choose `streamlit_app.py` as the main file.
+3. Open **Settings → Secrets** and add your values. Unlike `.env`, each value needs quotes:
+
+```toml
+GOOGLE_API_KEY = "your_google_maps_api_key"
+GEMINI_API_KEY = "your_gemini_api_key"
+GEMINI_MODEL = "gemini-3.6-flash"
+```
+
+`.env` is not used after deployment, because it is ignored by Git and never uploaded. When the page finds no running backend and Secrets exist, it copies them into the environment and starts FastAPI on `127.0.0.1`, so only the app itself can reach the backend.
+
+New commits on `main` are deployed automatically. If the old version keeps running, use **Reboot app**.
+
+A public app lets anyone with the link use your API quota. Restrict the app's viewers in Streamlit Cloud if you do not need it open to everyone, and set a budget alert and daily quota limits in Google Cloud.
